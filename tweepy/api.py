@@ -139,8 +139,10 @@ class API(object):
     )
 
     """ status/update_with_media """
-    def update_status_with_media(self, filename, *args, **kargs):
-        headers, post_data = API._pack_image(filename, 3072, name='media[]')
+    def update_status_with_media(self, filename, mimetype=None, *args, **kargs):
+        headers, post_data = API._pack_image(
+            filename, 3072, mimetype=mimetype, name='media[]'
+        )
         kargs.update({
             'headers': headers,
             'post_data': post_data,
@@ -368,8 +370,8 @@ class API(object):
     )
 
     """ account/update_profile_image """
-    def update_profile_image(self, filename):
-        headers, post_data = API._pack_image(filename, 700)
+    def update_profile_image(self, filename, mimetype=None):
+        headers, post_data = API._pack_image(filename, 700, mimetype=mimetype)
         return bind_api(
             path = '/account/update_profile_image.json',
             method = 'POST',
@@ -378,8 +380,8 @@ class API(object):
         )(self, post_data=post_data, headers=headers)
 
     """ account/update_profile_background_image """
-    def update_profile_background_image(self, filename, *args, **kargs):
-        headers, post_data = API._pack_image(filename, 800)
+    def update_profile_background_image(self, filename, mimetype=None):
+        headers, post_data = API._pack_image(filename, 800, mimetype=mimetype)
         bind_api(
             path = '/account/update_profile_background_image.json',
             method = 'POST',
@@ -741,7 +743,7 @@ class API(object):
 
     """ Internal use only """
     @staticmethod
-    def _pack_image(filename, max_size, name='image'):
+    def _pack_image(filename, max_size, mimetype=None, name='image'):
         """Pack image from file into multipart-formdata post body"""
         # image must be less than 700kb in size
         try:
@@ -750,13 +752,15 @@ class API(object):
         except os.error, e:
             raise TweepError('Unable to access file')
 
+        # if we weren't explicitly told the mimetype, guess it
+        if not mimetype:
+            mimetype = mimetypes.guess_type(filename)[0]
+
         # image must be gif, jpeg, or png
-        file_type = mimetypes.guess_type(filename)
-        if file_type is None:
-            raise TweepError('Could not determine file type')
-        file_type = file_type[0]
-        if file_type not in ['image/gif', 'image/jpeg', 'image/png']:
-            raise TweepError('Invalid file type for image: %s' % file_type)
+        if mimetype is None:
+            raise TweepError('Could not determine mimetype for image')
+        if mimetype not in ['image/gif', 'image/jpeg', 'image/png']:
+            raise TweepError('Invalid mimetype for image: %s' % mimetype)
 
         # build the mulitpart-formdata body
         fp = open(filename, 'rb')
@@ -764,7 +768,7 @@ class API(object):
         body = []
         body.append('--' + BOUNDARY)
         body.append('Content-Disposition: form-data; name="%s"; filename="%s"' % (name, filename))
-        body.append('Content-Type: %s' % file_type)
+        body.append('Content-Type: %s' % mimetype)
         body.append('')
         body.append(fp.read())
         body.append('--' + BOUNDARY + '--')
