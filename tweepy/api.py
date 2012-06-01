@@ -139,9 +139,9 @@ class API(object):
     )
 
     """ status/update_with_media """
-    def update_status_with_media(self, filename, mimetype=None, *args, **kargs):
+    def update_status_with_media(self, filename_or_handle, mimetype=None, *args, **kargs):
         headers, post_data = API._pack_image(
-            filename, 3072, mimetype=mimetype, name='media[]'
+            filename_or_handle, 3072, mimetype=mimetype, name='media[]'
         )
         kargs.update({
             'headers': headers,
@@ -370,8 +370,8 @@ class API(object):
     )
 
     """ account/update_profile_image """
-    def update_profile_image(self, filename, mimetype=None):
-        headers, post_data = API._pack_image(filename, 700, mimetype=mimetype)
+    def update_profile_image(self, filename_or_handle, mimetype=None):
+        headers, post_data = API._pack_image(filename_or_handle, 700, mimetype=mimetype)
         return bind_api(
             path = '/account/update_profile_image.json',
             method = 'POST',
@@ -380,8 +380,8 @@ class API(object):
         )(self, post_data=post_data, headers=headers)
 
     """ account/update_profile_background_image """
-    def update_profile_background_image(self, filename, mimetype=None):
-        headers, post_data = API._pack_image(filename, 800, mimetype=mimetype)
+    def update_profile_background_image(self, filename_or_handle, mimetype=None):
+        headers, post_data = API._pack_image(filename_or_handle, 800, mimetype=mimetype)
         bind_api(
             path = '/account/update_profile_background_image.json',
             method = 'POST',
@@ -743,17 +743,28 @@ class API(object):
 
     """ Internal use only """
     @staticmethod
-    def _pack_image(filename, max_size, mimetype=None, name='image'):
+    def _pack_image(filename_or_handle, max_size, mimetype=None, name='image'):
         """Pack image from file into multipart-formdata post body"""
-        # image must be less than 700kb in size
-        try:
-            if os.path.getsize(filename) > (max_size * 1024):
-                raise TweepError('File is too big, must be less than 700kb.')
-        except os.error, e:
-            raise TweepError('Unable to access file')
 
-        # if we weren't explicitly told the mimetype, guess it
-        if not mimetype:
+        # Not by any means perfect, but good enough for our purposes.
+        # Taken from django test client:
+        # https://github.com/django/django/blob/master/django/test/client.py#L109
+        is_file = lambda thing: hasattr(thing, 'read') and callable(thing.read)
+
+        if is_file(filename_or_handle):
+            filename = None
+            file_data = filename_or_handle.read()
+        else:
+            filename = filename_or_handle
+            with open(filename, 'rb') as fp:
+                file_data = fp.read()
+
+        # image must be less than max_size kb in size
+        if len(file_data) > (max_size * 1024):
+            raise TweepError('File is too big, must be less than %skb' % max_size)
+
+        # if we weren't explicitly told the mimetype, try to guess it
+        if not mimetype and filename:
             mimetype = mimetypes.guess_type(filename)[0]
 
         # image must be gif, jpeg, or png
@@ -763,17 +774,15 @@ class API(object):
             raise TweepError('Invalid mimetype for image: %s' % mimetype)
 
         # build the mulitpart-formdata body
-        fp = open(filename, 'rb')
         BOUNDARY = 'Tw3ePy'
         body = []
         body.append('--' + BOUNDARY)
         body.append('Content-Disposition: form-data; name="%s"; filename="%s"' % (name, filename))
         body.append('Content-Type: %s' % mimetype)
         body.append('')
-        body.append(fp.read())
+        body.append(file_data)
         body.append('--' + BOUNDARY + '--')
         body.append('')
-        fp.close()
         body = '\r\n'.join(body)
 
         # build headers
